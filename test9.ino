@@ -1,77 +1,70 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include "ui.h"  // SquareLine UI başlatıcısı
+#include "ui.h"  // SquareLine Studio arayüzü
 
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 240
-#define TOUCH_ROTATION 1
+#define SCREEN_WIDTH    320
+#define SCREEN_HEIGHT   240
+#define TOUCH_ROTATION  1
+#define LV_TICK_MS      5
 
 TFT_eSPI tft = TFT_eSPI();
-
-uint32_t screenWidth;
-uint32_t screenHeight;
-uint32_t bufSize;
 lv_display_t *disp;
-lv_color_t *disp_draw_buf;
+lv_color_t *disp_buf;
 unsigned long last_tick = 0;
 
-void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
-  uint16_t touchX, touchY;
-  bool touched = tft.getTouch(&touchX, &touchY);
-  if (touched) {
+// Dokunmatik okuma
+void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+  uint16_t x, y;
+  if (tft.getTouch(&x, &y)) {
     data->state = LV_INDEV_STATE_PR;
-    data->point.x = touchX;
-    data->point.y = touchY;
+    data->point.x = x;
+    data->point.y = y;
   } else {
     data->state = LV_INDEV_STATE_REL;
   }
 }
 
-void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-  uint32_t w = lv_area_get_width(area);
-  uint32_t h = lv_area_get_height(area);
-  tft.pushImage(area->x1, area->y1, w, h, (uint16_t *)px_map);
+// Ekrana veri çizme
+void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
+  tft.pushImage(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area), (uint16_t *)px_map);
   lv_disp_flush_ready(disp);
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("TFT_eSPI + SquareLine");
-
   tft.begin();
   tft.setRotation(TOUCH_ROTATION);
-  uint16_t calData[5] = { 289, 3317, 408, 3360, 1 };
-  tft.setTouch(calData);
+  tft.setTouch((uint16_t[]){ 289, 3317, 408, 3360, 1 });
   tft.fillScreen(TFT_BLACK);
 
   lv_init();
 
-  screenWidth = SCREEN_WIDTH;
-  screenHeight = SCREEN_HEIGHT;
-  bufSize = screenWidth * 40;
-
-  disp_draw_buf = (lv_color_t *)malloc(bufSize * 2);
-  if (!disp_draw_buf) {
-    Serial.println("LVGL disp_draw_buf allocate failed!");
+  // Görüntü belleği ayarla
+  disp_buf = (lv_color_t *)malloc(SCREEN_WIDTH * 40 * sizeof(lv_color_t));
+  if (!disp_buf) {
+    Serial.println("Ekran tampon belleği ayrılamadı!");
     return;
   }
 
-  disp = lv_display_create(screenWidth, screenHeight);
-  lv_display_set_flush_cb(disp, my_disp_flush);
-  lv_display_set_buffers(disp, disp_draw_buf, NULL, bufSize * 2, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  // LVGL ekran tanımı
+  disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
+  lv_display_set_flush_cb(disp, flush_cb);
+  lv_display_set_buffers(disp, disp_buf, NULL, SCREEN_WIDTH * 40 * 2, LV_DISPLAY_RENDER_MODE_PARTIAL);
 
+  // Dokunmatik girişi tanımı
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-  lv_indev_set_read_cb(indev, my_touchpad_read);
+  lv_indev_set_read_cb(indev, touch_read_cb);
+
+  // SquareLine arayüzünü başlat
   ui_init();
 }
 
 void loop() {
-  unsigned long now = millis();
-  if (now - last_tick >= 5) {
-    lv_tick_inc(5);
-    last_tick = now;
+  if (millis() - last_tick >= LV_TICK_MS) {
+    lv_tick_inc(LV_TICK_MS);
+    last_tick = millis();
   }
   lv_task_handler();
 }
